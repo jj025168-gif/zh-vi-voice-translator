@@ -308,17 +308,26 @@ function findVoice(language) {
   return voiceCache.find((voice) => voice.lang && /^vi(?:[-_]|$)/i.test(voice.lang)) || null;
 }
 
+// iOS Safari only allows speech output after speak() has run inside a user
+// gesture. Speak an empty utterance there; it finishes instantly and must not
+// be cancelled right away, or iOS may keep the audio session locked.
+let speechUnlocked = false;
 function unlockSpeech(language) {
-  if (!synthesis || typeof SpeechSynthesisUtterance === "undefined") return;
+  if (speechUnlocked || !synthesis || typeof SpeechSynthesisUtterance === "undefined") return;
   try {
-    const silent = new SpeechSynthesisUtterance(".");
+    const silent = new SpeechSynthesisUtterance("");
     silent.lang = language;
     silent.volume = 0;
     synthesis.speak(silent);
+    speechUnlocked = true;
   } catch (_error) {
     // The explicit playback below will expose a device-level failure.
   }
 }
+
+// Keep a reference to the utterance being spoken: some engines garbage-collect
+// it mid-sentence otherwise, and onend/onerror then never fire.
+let currentUtterance = null;
 
 function speakText(text, language, side) {
   if (!synthesis || typeof SpeechSynthesisUtterance === "undefined") {
@@ -326,36 +335,53 @@ function speakText(text, language, side) {
     setState("idle");
     return;
   }
-  synthesis.cancel();
   clearTimeout(speechWatchdog);
   const token = ++speechToken;
+  // On iOS, speak() issued immediately after cancel() is often dropped silently.
+  // Only cancel when something is actually queued, and then wait a moment.
+  const needsCancel = synthesis.speaking || synthesis.pending;
+  if (needsCancel) synthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = language;
   utterance.rate = language === "zh-TW" ? settings.rateZh : settings.rateVi;
+  utterance.volume = 1;
   const voice = findVoice(language);
   if (voice) utterance.voice = voice;
   setState("speaking", side);
   utterance.onend = () => {
     if (token !== speechToken) return;
     clearTimeout(speechWatchdog);
+    currentUtterance = null;
     if (state === "speaking" && activeSide === side) setState("idle");
   };
-  utterance.onerror = () => {
+  utterance.onerror = (event) => {
     if (token !== speechToken) return;
+    // "interrupted"/"canceled" come from our own cancel(); not a device failure.
+    if (event && (event.error === "interrupted" || event.error === "canceled")) return;
     clearTimeout(speechWatchdog);
+    currentUtterance = null;
     if (state === "speaking" && activeSide === side) showError(side, "speech");
   };
-  try {
-    synthesis.speak(utterance);
-    // Some iOS versions omit onend; do not leave both microphones locked forever.
-    speechWatchdog = setTimeout(() => {
-      if (token !== speechToken || state !== "speaking") return;
-      synthesis.cancel();
-      setState("idle");
-    }, Math.min(120000, Math.max(15000, text.length * 700)));
-  } catch (_error) {
-    showError(side, "speech");
-  }
+  const start = () => {
+    if (token !== speechToken) return;
+    try {
+      currentUtterance = utterance;
+      synthesis.speak(utterance);
+      // iOS/Chrome sometimes leave the queue paused; resume is harmless otherwise.
+      if (synthesis.paused) synthesis.resume();
+      // Some iOS versions omit onend; do not leave both microphones locked forever.
+      speechWatchdog = setTimeout(() => {
+        if (token !== speechToken || state !== "speaking") return;
+        synthesis.cancel();
+        currentUtterance = null;
+        setState("idle");
+      }, Math.min(120000, Math.max(15000, text.length * 700)));
+    } catch (_error) {
+      showError(side, "speech");
+    }
+  };
+  if (needsCancel) setTimeout(start, 150);
+  else start();
 }
 
 function recognitionErrorKey(code) {
@@ -379,7 +405,6 @@ function startListening(side) {
       return;
     }
     unlockSpeech(side === "a" ? "vi-VN" : "zh-TW");
-    synthesis.cancel();
   }
 
   let current;
