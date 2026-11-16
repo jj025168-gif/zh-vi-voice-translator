@@ -158,6 +158,9 @@ function words(side, key) {
       empty: "請先輸入文字。",
       added: "已加入常用句。",
       duplicate: "這句已在常用句中。",
+      copy: "複製",
+      copied: "已複製中文與越南文，可貼到 LINE。",
+      copyFailed: "無法複製，請長按文字自行選取。",
     },
     b: {
       idle: "Nhấn để nói tiếng Việt",
@@ -183,6 +186,9 @@ function words(side, key) {
       empty: "Hãy nhập nội dung trước.",
       added: "Đã thêm vào câu thường dùng.",
       duplicate: "Câu này đã có trong danh sách thường dùng.",
+      copy: "Sao chép",
+      copied: "Đã sao chép tiếng Trung và tiếng Việt, có thể dán vào LINE.",
+      copyFailed: "Không thể sao chép. Hãy nhấn giữ văn bản để tự chọn.",
     },
   };
   return copy[side][key] || copy[side].error;
@@ -266,6 +272,7 @@ function renderConversations() {
         actions.append(button);
       }
       if (message.status === "failed") actions.append(actionButton(words(side, "retry"), "retry", message.id, side));
+      if (message.zh || message.vi) actions.append(actionButton(words(side, "copy"), "copy", message.id, side));
       card.append(actions);
       fragment.append(card);
     });
@@ -273,6 +280,39 @@ function renderConversations() {
     container.scrollTop = container.scrollHeight;
   }
   if (ui.historyDialog.open) renderHistory();
+}
+
+// Copies both languages so the text can be pasted into LINE as one message.
+// Clipboard writes must stay inside the click handler on iOS, so no awaits
+// before navigator.clipboard.writeText; execCommand is the fallback for
+// browsers without the async API or over plain HTTP.
+function copyMessage(message, side) {
+  const text = [message.zh, message.vi].filter(Boolean).join("\n");
+  const done = (ok) => {
+    notices[side] = words(side, ok ? "copied" : "copyFailed");
+    renderStatus();
+  };
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    navigator.clipboard.writeText(text).then(() => done(true), () => done(legacyCopy(text)));
+    return;
+  }
+  done(legacyCopy(text));
+}
+
+function legacyCopy(text) {
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.focus();
+  area.select();
+  area.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (_error) { ok = false; }
+  area.remove();
+  return ok;
 }
 
 function actionButton(label, action, id, side) {
@@ -769,6 +809,8 @@ function init() {
       } else if (action === "retry" && message.status === "failed") {
         unlockSpeech(message.source === "a" ? "vi-VN" : "zh-TW");
         translateMessage(message);
+      } else if (action === "copy") {
+        copyMessage(message, side);
       } else if (action === "save" && message.zh && message.vi) {
         const exists = phrases.some((phrase) => phrase.zh === message.zh && phrase.vi === message.vi);
         notices[side] = words(side, exists ? "duplicate" : "added");
