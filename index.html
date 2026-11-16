@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f0e8">
+  <title>中越語音翻譯器 · Trò chuyện Trung–Việt</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="app" id="app">
+    <section class="side side-b" id="side-b" lang="vi" aria-label="Phía tiếng Việt">
+      <div class="side-inner">
+        <header class="side-header">
+          <div class="side-heading">
+            <span class="language-mark" aria-hidden="true">VI</span>
+            <h1>Tiếng Việt</h1>
+          </div>
+          <p class="side-status" id="status-b" role="status" aria-live="polite">Sẵn sàng</p>
+          <p class="recognition-warning" id="recognition-warning-b" hidden>Thiết bị này không hỗ trợ nhận dạng giọng nói. Hãy dùng bàn phím để nhập.</p>
+          <p class="interim" id="interim-b" aria-live="polite"></p>
+        </header>
+
+        <div class="conversation" id="conversation-b" role="log" aria-label="Hội thoại bằng tiếng Việt" aria-live="polite" aria-relevant="additions text">
+          <p class="empty-conversation">Cuộc trò chuyện sẽ hiện ở đây.</p>
+        </div>
+
+        <div class="side-controls">
+          <form class="composer" id="composer-b" hidden>
+            <label for="text-b">Nhập tiếng Việt</label>
+            <textarea id="text-b" rows="2" maxlength="3000" placeholder="Nhập một câu bằng tiếng Việt"></textarea>
+            <div class="composer-actions">
+              <button class="small-button quiet-button" type="button" id="cancel-b">Hủy</button>
+              <button class="small-button primary-button" type="submit" id="send-b">Gửi để dịch</button>
+            </div>
+          </form>
+          <div class="talk-actions">
+            <button class="keyboard-button" type="button" id="keyboard-b" aria-label="Nhập bằng bàn phím" title="Nhập bằng bàn phím">⌨<span class="keyboard-caption">Gõ</span></button>
+            <button class="mic-button" type="button" id="mic-b" aria-label="Nhấn để nói tiếng Việt">Nhấn để nói</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <nav class="toolbar" aria-label="工具列 / Thanh công cụ">
+      <button class="tool-button" type="button" id="phrases-open" aria-haspopup="dialog" aria-controls="phrases-dialog">
+        <span class="tool-label-vi" lang="vi">Câu thường dùng</span>
+        <span class="tool-label-zh">常用句</span>
+      </button>
+      <button class="tool-button" type="button" id="history-open" aria-haspopup="dialog" aria-controls="history-dialog">
+        <span class="tool-label-vi" lang="vi">Lịch sử</span>
+        <span class="tool-label-zh">紀錄</span>
+      </button>
+      <button class="tool-button" type="button" id="settings-open" aria-haspopup="dialog" aria-controls="settings-dialog">
+        <span class="tool-label-vi" lang="vi">Cài đặt</span>
+        <span class="tool-label-zh">設定</span>
+      </button>
+    </nav>
+
+    <section class="side side-a" id="side-a" lang="zh-Hant" aria-label="繁體中文側">
+      <div class="side-inner">
+        <header class="side-header">
+          <div class="side-heading">
+            <span class="language-mark" aria-hidden="true">中</span>
+            <h1>繁體中文</h1>
+          </div>
+          <p class="side-status" id="status-a" role="status" aria-live="polite">準備好了</p>
+          <p class="recognition-warning" id="recognition-warning-a" hidden>這個瀏覽器不支援語音辨識，仍可使用鍵盤打字翻譯。</p>
+          <p class="interim" id="interim-a" aria-live="polite"></p>
+        </header>
+
+        <div class="conversation" id="conversation-a" role="log" aria-label="繁體中文對話" aria-live="polite" aria-relevant="additions text">
+          <p class="empty-conversation">對話會顯示在這裡。</p>
+        </div>
+
+        <div class="side-controls">
+          <form class="composer" id="composer-a" hidden>
+            <label for="text-a">輸入繁體中文</label>
+            <textarea id="text-a" rows="2" maxlength="3000" placeholder="打一句繁體中文"></textarea>
+            <div class="composer-actions">
+              <button class="small-button quiet-button" type="button" id="cancel-a">取消</button>
+              <button class="small-button primary-button" type="submit" id="send-a">送出翻譯</button>
+            </div>
+          </form>
+          <div class="talk-actions">
+            <button class="keyboard-button" type="button" id="keyboard-a" aria-label="改用鍵盤輸入" title="改用鍵盤輸入">⌨<span class="keyboard-caption">打字</span></button>
+            <button class="mic-button" type="button" id="mic-a" aria-label="點一下說中文">點一下說中文</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="panel-dialog" id="phrases-dialog" aria-labelledby="phrases-title">
+    <div class="dialog-heading">
+      <h2 id="phrases-title">常用句 <small lang="vi">Câu thường dùng</small></h2>
+      <button class="close-button" type="button" data-close-dialog aria-label="關閉">×</button>
+    </div>
+    <p class="dialog-help">選擇說話方向，再點一句。<br><span lang="vi">Chọn hướng nói, rồi chạm vào một câu.</span></p>
+    <label class="field-label" for="phrase-direction">說話方向 / Hướng nói</label>
+    <select id="phrase-direction">
+      <option value="a">中文 → 越南文</option>
+      <option value="b">Tiếng Việt → Tiếng Trung</option>
+    </select>
+    <div class="dialog-list" id="phrases-list"></div>
+  </dialog>
+
+  <dialog class="panel-dialog" id="history-dialog" aria-labelledby="history-title">
+    <div class="dialog-heading">
+      <h2 id="history-title">對話紀錄 <small lang="vi">Lịch sử</small></h2>
+      <button class="close-button" type="button" data-close-dialog aria-label="關閉">×</button>
+    </div>
+    <div class="dialog-list" id="history-list"></div>
+    <button class="danger-button" type="button" id="clear-history">清空紀錄 / Xóa lịch sử</button>
+  </dialog>
+
+  <dialog class="panel-dialog" id="settings-dialog" aria-labelledby="settings-title">
+    <div class="dialog-heading">
+      <h2 id="settings-title">設定 <small lang="vi">Cài đặt</small></h2>
+      <button class="close-button" type="button" data-close-dialog aria-label="關閉">×</button>
+    </div>
+    <div class="settings-fields">
+      <div class="setting-row">
+        <label for="font-size">對話字體 / Cỡ chữ</label>
+        <div class="range-row"><input type="range" id="font-size" min="22" max="36" step="1" value="24"><output id="font-size-value" for="font-size">24px</output></div>
+      </div>
+      <div class="setting-row">
+        <label for="rate-zh">中文語速 / Tốc độ giọng Trung</label>
+        <div class="range-row"><input type="range" id="rate-zh" min="0.5" max="1.5" step="0.05" value="0.9"><output id="rate-zh-value" for="rate-zh">0.9×</output></div>
+      </div>
+      <div class="setting-row">
+        <label for="rate-vi">越南文語速 / Tốc độ giọng Việt</label>
+        <div class="range-row"><input type="range" id="rate-vi" min="0.5" max="1.5" step="0.05" value="0.9"><output id="rate-vi-value" for="rate-vi">0.9×</output></div>
+      </div>
+      <label class="checkbox-row" for="auto-speak"><input type="checkbox" id="auto-speak" checked> 自動念出譯文 / Tự động đọc bản dịch</label>
+      <div class="setting-row">
+        <label for="email">MyMemory 電子郵件（選填） / Email (tùy chọn)</label>
+        <input type="email" id="email" inputmode="email" autocomplete="email" placeholder="name@example.com">
+        <p class="field-note">用於提高免費翻譯額度，僅儲存在這台裝置。</p>
+      </div>
+      <div class="voice-warning" id="voice-warning" role="status" aria-live="polite"></div>
+    </div>
+  </dialog>
+</body>
+</html>

@@ -1,0 +1,5 @@
+﻿# 本機與系統檔
+Thumbs.db
+.DS_Store
+*.log
+
