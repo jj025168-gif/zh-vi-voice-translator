@@ -51,6 +51,10 @@ const ui = {
   phraseList: document.getElementById("phrases-list"),
   historyList: document.getElementById("history-list"),
   voiceWarning: document.getElementById("voice-warning"),
+  voiceZh: document.getElementById("voice-zh"),
+  voiceVi: document.getElementById("voice-vi"),
+  previewZh: document.getElementById("preview-zh"),
+  previewVi: document.getElementById("preview-vi"),
   email: document.getElementById("email"),
   rateZh: document.getElementById("rate-zh"),
   rateVi: document.getElementById("rate-vi"),
@@ -108,6 +112,8 @@ let settings = {
   fontSize: boundedNumber(storedSettings.fontSize, 22, 36, 24),
   rateZh: boundedNumber(storedSettings.rateZh, 0.5, 1.5, 0.9),
   rateVi: boundedNumber(storedSettings.rateVi, 0.5, 1.5, 0.9),
+  voiceZh: typeof storedSettings.voiceZh === "string" ? storedSettings.voiceZh : "",
+  voiceVi: typeof storedSettings.voiceVi === "string" ? storedSettings.voiceVi : "",
   autoSpeak: storedSettings.autoSpeak !== false,
   email: typeof storedSettings.email === "string" ? storedSettings.email : "",
   apiKey: typeof storedSettings.apiKey === "string" ? storedSettings.apiKey.trim() : "",
@@ -124,8 +130,10 @@ let recognitionToken = 0;
 let watchdog = null;
 let errorResetTimer = null;
 let voiceCache = [];
+let voiceWarningBase = "";
 let speechToken = 0;
 let speechWatchdog = null;
+let previewStartTimer = null;
 let recognitionStopping = false;
 const notices = { a: "", b: "" };
 const interimText = { a: "", b: "" };
@@ -354,19 +362,65 @@ function actionButton(label, action, id, side) {
   return button;
 }
 
+function renderVoiceWarning(extra = "") {
+  ui.voiceWarning.textContent = [voiceWarningBase, extra].filter(Boolean).join(" ");
+}
+
+function availableVoices(language) {
+  if (language === "zh-TW") {
+    const chinese = voiceCache.filter((voice) => voice.lang && /^zh/i.test(voice.lang));
+    const traditional = chinese.filter((voice) => /^zh[-_](?:tw|hant)(?:[-_]|$)/i.test(voice.lang));
+    return traditional.length ? traditional : chinese;
+  }
+  return voiceCache.filter((voice) => voice.lang && /^vi/i.test(voice.lang));
+}
+
+function populateVoiceSelect(select, voices, selectedURI) {
+  const fragment = document.createDocumentFragment();
+  const automatic = document.createElement("option");
+  automatic.value = "";
+  automatic.textContent = "自動 / Tự động";
+  fragment.append(automatic);
+  for (const voice of voices) {
+    if (!voice.voiceURI) continue;
+    const option = document.createElement("option");
+    option.value = voice.voiceURI;
+    option.textContent = `${voice.name} (${voice.lang})`;
+    fragment.append(option);
+  }
+  select.replaceChildren(fragment);
+  select.value = voices.some((voice) => voice.voiceURI && voice.voiceURI === selectedURI) ? selectedURI : "";
+}
+
 function updateVoices() {
+  voiceCache = [];
   if (!synthesis || typeof synthesis.getVoices !== "function") {
-    ui.voiceWarning.textContent = "此瀏覽器不支援語音播放。 / Trình duyệt không hỗ trợ phát âm thanh.";
+    populateVoiceSelect(ui.voiceZh, [], settings.voiceZh);
+    populateVoiceSelect(ui.voiceVi, [], settings.voiceVi);
+    voiceWarningBase = "此瀏覽器不支援語音播放。 / Trình duyệt không hỗ trợ phát âm thanh.";
+    renderVoiceWarning();
     return;
   }
-  try { voiceCache = synthesis.getVoices(); } catch (_error) { voiceCache = []; }
+  try { voiceCache = Array.from(synthesis.getVoices() || []).filter(Boolean); } catch (_error) { voiceCache = []; }
+  const zhVoices = availableVoices("zh-TW");
+  const viVoices = availableVoices("vi-VN");
+  populateVoiceSelect(ui.voiceZh, zhVoices, settings.voiceZh);
+  populateVoiceSelect(ui.voiceVi, viVoices, settings.voiceVi);
   const warnings = [];
   if (!findVoice("zh-TW")) warnings.push("找不到繁體中文語音；系統會嘗試自行選擇。 / Không tìm thấy giọng Trung phồn thể.");
   if (!findVoice("vi-VN")) warnings.push("找不到越南文語音；系統會嘗試自行選擇。 / Không tìm thấy giọng tiếng Việt.");
-  ui.voiceWarning.textContent = warnings.join(" ");
+  if (zhVoices.length <= 1 || viVoices.length <= 1) {
+    warnings.push("可用聲音較少；iPhone 可到「設定 → 輔助使用 → 朗讀內容 → 聲音」下載更多聲音。 / Có ít giọng đọc; trên iPhone, vào Cài đặt → Trợ năng → Nội dung được đọc → Giọng nói để tải thêm giọng.");
+  }
+  voiceWarningBase = warnings.join(" ");
+  renderVoiceWarning();
 }
 
-function findVoice(language) {
+function findVoice(language, voiceURI = language.toLowerCase().startsWith("zh") ? settings.voiceZh : settings.voiceVi) {
+  if (voiceURI) {
+    const selected = voiceCache.find((voice) => voice.voiceURI === voiceURI);
+    if (selected) return selected;
+  }
   const normalized = language.toLowerCase();
   const exact = voiceCache.find((voice) => voice.lang && voice.lang.toLowerCase() === normalized);
   if (exact) return exact;
@@ -381,15 +435,17 @@ function findVoice(language) {
 // be cancelled right away, or iOS may keep the audio session locked.
 let speechUnlocked = false;
 function unlockSpeech(language) {
-  if (speechUnlocked || !synthesis || typeof SpeechSynthesisUtterance === "undefined") return;
+  if (speechUnlocked || !synthesis || typeof SpeechSynthesisUtterance === "undefined") return false;
   try {
     const silent = new SpeechSynthesisUtterance("");
     silent.lang = language;
     silent.volume = 0;
     synthesis.speak(silent);
     speechUnlocked = true;
+    return true;
   } catch (_error) {
     // The explicit playback below will expose a device-level failure.
+    return false;
   }
 }
 
@@ -397,58 +453,99 @@ function unlockSpeech(language) {
 // it mid-sentence otherwise, and onend/onerror then never fire.
 let currentUtterance = null;
 
+function createSpeechUtterance(text, language, voice) {
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = language;
+  utterance.rate = language === "zh-TW" ? settings.rateZh : settings.rateVi;
+  utterance.volume = 1;
+  if (voice) utterance.voice = voice;
+  return utterance;
+}
+
+function playSpeech(text, language, voice, onEnd, onError, onTimeout = onEnd) {
+  clearTimeout(speechWatchdog);
+  const token = ++speechToken;
+  let settled = false;
+  const finish = (callback) => {
+    if (token !== speechToken || settled) return;
+    settled = true;
+    clearTimeout(speechWatchdog);
+    currentUtterance = null;
+    callback();
+  };
+  // On iOS, speak() issued immediately after cancel() is often dropped silently.
+  // Only cancel when something is actually queued, and then wait a moment.
+  let needsCancel;
+  let utterance;
+  try {
+    needsCancel = synthesis.speaking || synthesis.pending;
+    if (needsCancel) synthesis.cancel();
+    utterance = createSpeechUtterance(text, language, voice);
+  } catch (_error) {
+    finish(onError);
+    return;
+  }
+  utterance.onend = () => finish(onEnd);
+  // Our own cancel() increments the token first, so its error event is ignored.
+  utterance.onerror = () => finish(onError);
+  const start = () => {
+    if (token !== speechToken || settled) return;
+    try {
+      currentUtterance = utterance;
+      // Some iOS versions omit onend; a stalled preview must also report failure.
+      speechWatchdog = setTimeout(() => {
+        if (token !== speechToken || settled) return;
+        finish(onTimeout);
+        try { synthesis.cancel(); } catch (_error) { /* Nothing left to stop. */ }
+      }, Math.min(120000, Math.max(15000, text.length * 700)));
+      synthesis.speak(utterance);
+      // iOS/Chrome sometimes leave the queue paused; resume is harmless otherwise.
+      if (synthesis.paused) synthesis.resume();
+    } catch (_error) {
+      finish(onError);
+    }
+  };
+  if (needsCancel) setTimeout(start, 150);
+  else start();
+}
+
 function speakText(text, language, side) {
   if (!synthesis || typeof SpeechSynthesisUtterance === "undefined") {
     notices[side] = words(side, "speech");
     setState("idle");
     return;
   }
-  clearTimeout(speechWatchdog);
-  const token = ++speechToken;
-  // On iOS, speak() issued immediately after cancel() is often dropped silently.
-  // Only cancel when something is actually queued, and then wait a moment.
-  const needsCancel = synthesis.speaking || synthesis.pending;
-  if (needsCancel) synthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = language;
-  utterance.rate = language === "zh-TW" ? settings.rateZh : settings.rateVi;
-  utterance.volume = 1;
-  const voice = findVoice(language);
-  if (voice) utterance.voice = voice;
   setState("speaking", side);
-  utterance.onend = () => {
-    if (token !== speechToken) return;
-    clearTimeout(speechWatchdog);
-    currentUtterance = null;
-    if (state === "speaking" && activeSide === side) setState("idle");
-  };
-  utterance.onerror = (event) => {
-    if (token !== speechToken) return;
-    // "interrupted"/"canceled" come from our own cancel(); not a device failure.
-    if (event && (event.error === "interrupted" || event.error === "canceled")) return;
-    clearTimeout(speechWatchdog);
-    currentUtterance = null;
-    if (state === "speaking" && activeSide === side) showError(side, "speech");
-  };
+  playSpeech(text, language, findVoice(language),
+    () => { if (state === "speaking" && activeSide === side) setState("idle"); },
+    () => { if (state === "speaking" && activeSide === side) showError(side, "speech"); },
+    () => { if (state === "speaking" && activeSide === side) setState("idle"); });
+}
+
+function previewVoice(language, select) {
+  if (state !== "idle") {
+    renderVoiceWarning("請等目前操作結束後再試聽。 / Hãy đợi thao tác hiện tại kết thúc rồi nghe thử.");
+    return;
+  }
+  if (!synthesis || typeof SpeechSynthesisUtterance === "undefined") {
+    renderVoiceWarning("無法試聽。 / Không thể nghe thử.");
+    return;
+  }
+  renderVoiceWarning();
+  const waitingForUnlock = previewStartTimer !== null;
+  const justUnlocked = unlockSpeech(language);
+  if (previewStartTimer !== null) clearTimeout(previewStartTimer);
   const start = () => {
-    if (token !== speechToken) return;
-    try {
-      currentUtterance = utterance;
-      synthesis.speak(utterance);
-      // iOS/Chrome sometimes leave the queue paused; resume is harmless otherwise.
-      if (synthesis.paused) synthesis.resume();
-      // Some iOS versions omit onend; do not leave both microphones locked forever.
-      speechWatchdog = setTimeout(() => {
-        if (token !== speechToken || state !== "speaking") return;
-        synthesis.cancel();
-        currentUtterance = null;
-        setState("idle");
-      }, Math.min(120000, Math.max(15000, text.length * 700)));
-    } catch (_error) {
-      showError(side, "speech");
-    }
+    previewStartTimer = null;
+    if (state !== "idle") return;
+    const sample = language === "zh-TW" ? "你好，很高興認識你。" : "Xin chào, rất vui được gặp bạn.";
+    playSpeech(sample, language, findVoice(language, select.value),
+      () => {},
+      () => renderVoiceWarning("試聽失敗，請檢查音量或換一個聲音。 / Không thể nghe thử; hãy kiểm tra âm lượng hoặc chọn giọng khác."),
+      () => renderVoiceWarning("試聽逾時，請再試一次。 / Nghe thử quá lâu; hãy thử lại."));
   };
-  if (needsCancel) setTimeout(start, 150);
+  // Let the silent utterance finish before canceling the queue on first use.
+  if (justUnlocked || waitingForUnlock) previewStartTimer = setTimeout(start, 150);
   else start();
 }
 
@@ -992,6 +1089,10 @@ function init() {
     renderHistory();
   });
   ui.fontSize.addEventListener("input", () => { settings.fontSize = boundedNumber(ui.fontSize.value, 22, 36, 24); applySettings(); saveSettings(); });
+  ui.voiceZh.addEventListener("change", () => { settings.voiceZh = ui.voiceZh.value; saveSettings(); renderVoiceWarning(); });
+  ui.voiceVi.addEventListener("change", () => { settings.voiceVi = ui.voiceVi.value; saveSettings(); renderVoiceWarning(); });
+  ui.previewZh.addEventListener("click", () => previewVoice("zh-TW", ui.voiceZh));
+  ui.previewVi.addEventListener("click", () => previewVoice("vi-VN", ui.voiceVi));
   ui.rateZh.addEventListener("input", () => { settings.rateZh = boundedNumber(ui.rateZh.value, 0.5, 1.5, 0.9); document.getElementById("rate-zh-value").textContent = `${settings.rateZh.toFixed(2).replace(/0$/, "")}×`; saveSettings(); });
   ui.rateVi.addEventListener("input", () => { settings.rateVi = boundedNumber(ui.rateVi.value, 0.5, 1.5, 0.9); document.getElementById("rate-vi-value").textContent = `${settings.rateVi.toFixed(2).replace(/0$/, "")}×`; saveSettings(); });
   ui.apiKey.addEventListener("input", () => { settings.apiKey = ui.apiKey.value.trim(); saveSettings(); renderEngineStatus(); });
