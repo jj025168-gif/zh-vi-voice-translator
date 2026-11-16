@@ -56,7 +56,24 @@ const ui = {
   rateVi: document.getElementById("rate-vi"),
   fontSize: document.getElementById("font-size"),
   autoSpeak: document.getElementById("auto-speak"),
+  apiKey: document.getElementById("api-key"),
+  model: document.getElementById("model"),
+  relationship: document.getElementById("relationship"),
+  toneNote: document.getElementById("tone-note"),
+  layout: document.getElementById("layout"),
+  testEngine: document.getElementById("test-engine"),
+  engineStatus: document.getElementById("engine-status"),
 };
+
+const CLAUDE_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
+const RELATIONSHIPS = {
+  couple: "情侶或夫妻（男方稱 anh，女方稱 em，語氣親暱自然）",
+  friends: "朋友（依年齡用 anh/em 或 bạn/mình，輕鬆自然）",
+  colleagues: "同事（客氣但不生硬，依年齡用 anh/chị/em）",
+  family: "家人（依輩分選擇正確的家庭稱謂）",
+  new: "剛認識（禮貌、保持距離，可用 anh/chị 與 em 或 tôi/bạn）",
+};
+const LAYOUTS = ["face", "side"];
 
 function readStored(key, fallback) {
   try {
@@ -93,6 +110,11 @@ let settings = {
   rateVi: boundedNumber(storedSettings.rateVi, 0.5, 1.5, 0.9),
   autoSpeak: storedSettings.autoSpeak !== false,
   email: typeof storedSettings.email === "string" ? storedSettings.email : "",
+  apiKey: typeof storedSettings.apiKey === "string" ? storedSettings.apiKey.trim() : "",
+  model: CLAUDE_MODELS.includes(storedSettings.model) ? storedSettings.model : CLAUDE_MODELS[0],
+  relationship: Object.prototype.hasOwnProperty.call(RELATIONSHIPS, storedSettings.relationship) ? storedSettings.relationship : "couple",
+  toneNote: typeof storedSettings.toneNote === "string" ? storedSettings.toneNote.slice(0, 200) : "",
+  layout: LAYOUTS.includes(storedSettings.layout) ? storedSettings.layout : "face",
 };
 
 let state = "idle";
@@ -161,6 +183,9 @@ function words(side, key) {
       copy: "複製",
       copied: "已複製中文與越南文，可貼到 LINE。",
       copyFailed: "無法複製，請長按文字自行選取。",
+      apiKey: "Claude API 金鑰無效或已失效，請到設定檢查。",
+      rateLimit: "AI 翻譯請求太頻繁或額度不足，請稍後再試。",
+      refused: "AI 拒絕翻譯這句，請換個說法。",
     },
     b: {
       idle: "Nhấn để nói tiếng Việt",
@@ -189,6 +214,9 @@ function words(side, key) {
       copy: "Sao chép",
       copied: "Đã sao chép tiếng Trung và tiếng Việt, có thể dán vào LINE.",
       copyFailed: "Không thể sao chép. Hãy nhấn giữ văn bản để tự chọn.",
+      apiKey: "Khóa API Claude không hợp lệ hoặc đã hết hạn. Hãy kiểm tra trong Cài đặt.",
+      rateLimit: "Yêu cầu dịch AI quá nhiều hoặc hết hạn mức. Hãy thử lại sau.",
+      refused: "AI từ chối dịch câu này. Hãy nói cách khác.",
     },
   };
   return copy[side][key] || copy[side].error;
@@ -586,8 +614,89 @@ function isQuotaWarning(value) {
   return typeof value === "string" && /mymemory\s+warning|quota|daily\s+(?:free\s+)?limit|used\s+all\s+available\s+free\s+translations|translation\s+limit|too\s+many\s+requests/i.test(value);
 }
 
-/** Translation service boundary. Replace only this function for another provider. */
+/** Translation service boundary: Claude when a key is set, MyMemory otherwise. */
 async function translate(text, from, to) {
+  if (settings.apiKey) return translateWithClaude(text, from, to);
+  return translateWithMyMemory(text, from, to);
+}
+
+function claudeSystemPrompt() {
+  const lines = [
+    "你是一位同時精通台灣繁體中文與越南文的口譯員，正在為兩個面對面聊天的人逐句即時翻譯。",
+    "A 是男生，說台灣繁體中文。B 是女生，說越南文。",
+    `兩人關係：${RELATIONSHIPS[settings.relationship]}。`,
+  ];
+  if (settings.toneNote.trim()) lines.push(`補充：${settings.toneNote.trim()}`);
+  lines.push(
+    "規則：",
+    "1. 中文→越南文：譯成越南人日常口語，依兩人關係與性別選擇正確的人稱與稱呼；除非關係是剛認識，否則不要用生硬的 tôi／bạn。",
+    "2. 越南文→中文：譯成台灣人日常會說的繁體中文口語，一律使用繁體字與台灣用語，不用簡體字。",
+    "3. 保留原句的語氣（疑問、撒嬌、開玩笑、生氣、客氣），長度相當，不要加解釋、註解或引號。",
+    "4. 原文來自語音辨識，若有明顯錯字或同音誤認，依上下文推測最合理的意思再翻譯。",
+    "5. 只輸出譯文本身，不要輸出任何其他文字。",
+  );
+  return lines.join("\n");
+}
+
+function claudeContext(limit) {
+  const recent = messages.filter((item) => item.status === "ok" && item.zh && item.vi).slice(-limit);
+  if (!recent.length) return "";
+  const lines = recent.map((item) => `${item.source === "a" ? "A（中文）" : "B（越南文）"}：${item.original}\n→ ${item.source === "a" ? item.vi : item.zh}`);
+  return `先前的對話（供理解上下文與稱呼一致，不必重譯）：\n${lines.join("\n")}\n\n`;
+}
+
+async function translateWithClaude(text, from, to) {
+  const toVietnamese = to === "vi";
+  const instruction = toVietnamese
+    ? "請把 A（男生）剛說的這句中文翻成越南文："
+    : "請把 B（女生）剛說的這句越南文翻成繁體中文：";
+  const body = {
+    model: settings.model,
+    max_tokens: 1024,
+    system: claudeSystemPrompt(),
+    messages: [{ role: "user", content: `${claudeContext(6)}${instruction}\n${text}` }],
+    output_config: { effort: "low" },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    "x-api-key": settings.apiKey,
+    "anthropic-version": "2026-10-21",
+    // The key lives only on this device; this header lets Safari call the API directly.
+    "anthropic-dangerous-direct-browser-access": "true",
+  };
+  if (settings.model !== "claude-haiku-5-5") {
+    // Route rare safety refusals to a fallback model instead of failing the sentence.
+    headers["anthropic-beta"] = "server-side-fallback-2026-07-01";
+    body.fallbacks = "default";
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  let response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST", headers, body: JSON.stringify(body), signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error && error.name === "AbortError") throw new TranslationFailure("timeout");
+    throw new TranslationFailure("network");
+  }
+  clearTimeout(timer);
+  if (response.status === 401 || response.status === 403) throw new TranslationFailure("apiKey");
+  if (response.status === 429 || response.status === 402) throw new TranslationFailure("rateLimit");
+  if (response.status === 529 || response.status >= 500) throw new TranslationFailure("network");
+  if (!response.ok) throw new TranslationFailure("translate");
+  let data;
+  try { data = await response.json(); } catch (_error) { throw new TranslationFailure("translate"); }
+  if (data && data.stop_reason === "refusal") throw new TranslationFailure("refused");
+  const translated = Array.isArray(data && data.content)
+    ? data.content.filter((block) => block && block.type === "text" && typeof block.text === "string").map((block) => block.text).join("").trim()
+    : "";
+  if (!translated) throw new TranslationFailure("translate");
+  return translated.replace(/^["「『]+|["」』]+$/g, "").trim();
+}
+
+async function translateWithMyMemory(text, from, to) {
   const output = [];
   for (const chunk of splitForTranslation(text)) {
     const controller = new AbortController();
@@ -745,14 +854,47 @@ function usePhrase(phrase) {
 
 function applySettings() {
   document.documentElement.style.setProperty("--conversation-size", `${settings.fontSize}px`);
+  document.body.classList.toggle("side-by-side", settings.layout === "side");
   ui.fontSize.value = String(settings.fontSize);
   ui.rateZh.value = String(settings.rateZh);
   ui.rateVi.value = String(settings.rateVi);
   ui.autoSpeak.checked = settings.autoSpeak;
   ui.email.value = settings.email;
+  ui.apiKey.value = settings.apiKey;
+  ui.model.value = settings.model;
+  ui.relationship.value = settings.relationship;
+  ui.toneNote.value = settings.toneNote;
+  ui.layout.value = settings.layout;
   document.getElementById("font-size-value").textContent = `${settings.fontSize}px`;
   document.getElementById("rate-zh-value").textContent = `${settings.rateZh.toFixed(2).replace(/0$/, "")}×`;
   document.getElementById("rate-vi-value").textContent = `${settings.rateVi.toFixed(2).replace(/0$/, "")}×`;
+  renderEngineStatus();
+}
+
+function renderEngineStatus(text, isError) {
+  if (typeof text === "string") {
+    ui.engineStatus.textContent = text;
+  } else {
+    ui.engineStatus.textContent = settings.apiKey
+      ? `目前使用 Claude（${ui.model.options[ui.model.selectedIndex].text.split("（")[0]}）。`
+      : "目前使用 MyMemory 免費翻譯。";
+  }
+  ui.engineStatus.classList.toggle("is-error", Boolean(isError));
+}
+
+async function testEngine() {
+  if (state !== "idle") return;
+  ui.testEngine.disabled = true;
+  renderEngineStatus("測試中… / Đang thử…");
+  try {
+    const sample = await translate("你吃飽了嗎？", "zh-TW", "vi");
+    renderEngineStatus(`成功：「你吃飽了嗎？」→「${sample}」`);
+  } catch (error) {
+    const code = error instanceof TranslationFailure ? error.code : "translate";
+    renderEngineStatus(`失敗：${words("a", code)}`, true);
+  } finally {
+    ui.testEngine.disabled = false;
+  }
 }
 
 function init() {
@@ -852,6 +994,12 @@ function init() {
   ui.fontSize.addEventListener("input", () => { settings.fontSize = boundedNumber(ui.fontSize.value, 22, 36, 24); applySettings(); saveSettings(); });
   ui.rateZh.addEventListener("input", () => { settings.rateZh = boundedNumber(ui.rateZh.value, 0.5, 1.5, 0.9); document.getElementById("rate-zh-value").textContent = `${settings.rateZh.toFixed(2).replace(/0$/, "")}×`; saveSettings(); });
   ui.rateVi.addEventListener("input", () => { settings.rateVi = boundedNumber(ui.rateVi.value, 0.5, 1.5, 0.9); document.getElementById("rate-vi-value").textContent = `${settings.rateVi.toFixed(2).replace(/0$/, "")}×`; saveSettings(); });
+  ui.apiKey.addEventListener("input", () => { settings.apiKey = ui.apiKey.value.trim(); saveSettings(); renderEngineStatus(); });
+  ui.model.addEventListener("change", () => { settings.model = CLAUDE_MODELS.includes(ui.model.value) ? ui.model.value : CLAUDE_MODELS[0]; saveSettings(); renderEngineStatus(); });
+  ui.relationship.addEventListener("change", () => { settings.relationship = Object.prototype.hasOwnProperty.call(RELATIONSHIPS, ui.relationship.value) ? ui.relationship.value : "couple"; saveSettings(); });
+  ui.toneNote.addEventListener("input", () => { settings.toneNote = ui.toneNote.value.slice(0, 200); saveSettings(); });
+  ui.layout.addEventListener("change", () => { settings.layout = LAYOUTS.includes(ui.layout.value) ? ui.layout.value : "face"; saveSettings(); applySettings(); });
+  ui.testEngine.addEventListener("click", testEngine);
   ui.autoSpeak.addEventListener("change", () => { settings.autoSpeak = ui.autoSpeak.checked; saveSettings(); });
   ui.email.addEventListener("change", () => { settings.email = ui.email.validity.valid ? ui.email.value.trim() : ""; saveSettings(); });
 }

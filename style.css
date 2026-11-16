@@ -79,6 +79,12 @@ input, textarea {
 /* Reversing the layout before rotation places B's talk button by the toolbar. */
 .side-b .side-inner { flex-direction: column-reverse; }
 
+/* Side-by-side mode: both people sit together sharing one pair of earbuds,
+   so B's panel stays upright with its talk button next to the toolbar. */
+body.side-by-side .side-b { transform: none; }
+body.side-by-side .side-b .side-inner { flex-direction: column; }
+body.side-by-side .tool-label-vi { transform: none; }
+
 .side-header { flex: 0 0 auto; min-height: 0; }
 .side-heading { display: flex; align-items: center; gap: 8px; }
 .side-heading h1 { margin: 0; font-size: 17px; line-height: 1.25; font-weight: 800; letter-spacing: .02em; }
@@ -263,7 +269,7 @@ input, textarea {
 .close-button { flex: 0 0 42px; height: 42px; padding: 0; border: 0; border-radius: 50%; background: #edf0ed; color: var(--ink); font-size: 28px; line-height: 1; }
 .dialog-help { margin: 12px 0; color: #45545b; font-size: 15px; line-height: 1.4; }
 .field-label { display: block; margin: 10px 0 5px; font-size: 15px; font-weight: 700; }
-.panel-dialog select, .panel-dialog input[type="email"] {
+.panel-dialog select, .panel-dialog input[type="email"], .panel-dialog input[type="password"], .panel-dialog input[type="text"] {
   width: 100%;
   min-height: 44px;
   padding: 7px 10px;
@@ -334,6 +340,12 @@ input, textarea {
 .checkbox-row { display: flex; align-items: center; gap: 9px; min-height: 44px; font-size: 16px; font-weight: 700; }
 .checkbox-row input { width: 20px; height: 20px; accent-color: var(--a); }
 .field-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.settings-group-title { margin: 6px 0 -4px; padding-top: 10px; border-top: 1px solid #d9e2de; font-size: 15px; font-weight: 800; color: var(--a-dark); }
+.settings-group-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.settings-group-title small { margin-left: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.engine-test-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.engine-status { flex: 1 1 160px; font-size: 14px; line-height: 1.4; color: var(--ink); }
+.engine-status.is-error { color: #a52222; }
 .voice-warning:empty { display: none; }
 .voice-warning { padding: 9px; border-radius: 8px; background: #fff7d8; color: #684d16; font-size: 14px; line-height: 1.45; }
 

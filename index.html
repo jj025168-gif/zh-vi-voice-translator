@@ -121,6 +121,49 @@
       <button class="close-button" type="button" data-close-dialog aria-label="關閉">×</button>
     </div>
     <div class="settings-fields">
+      <h3 class="settings-group-title">翻譯引擎 <small lang="vi">Công cụ dịch</small></h3>
+      <div class="setting-row">
+        <label for="api-key">Claude API 金鑰 / Khóa API Claude</label>
+        <input type="password" id="api-key" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-…">
+        <p class="field-note">填入後改用 Claude AI 翻譯（口語自然、會依關係選稱呼）；留空則用 MyMemory 免費翻譯。金鑰只存在這台裝置。</p>
+      </div>
+      <div class="setting-row">
+        <label for="model">模型 / Mô hình</label>
+        <select id="model">
+          <option value="claude-opus-5-5">Claude Opus 5.5（最準，約每句 NT$0.1）</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5（平衡，約每句 NT$0.05）</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5（最省，約每句 NT$0.003）</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label for="relationship">兩人關係 / Quan hệ</label>
+        <select id="relationship">
+          <option value="couple">情侶或夫妻 / Người yêu hoặc vợ chồng</option>
+          <option value="friends">朋友 / Bạn bè</option>
+          <option value="colleagues">同事 / Đồng nghiệp</option>
+          <option value="family">家人 / Gia đình</option>
+          <option value="new">剛認識 / Mới quen</option>
+        </select>
+        <p class="field-note">男生說中文、女生說越南文。AI 會依此選擇 anh／em 等稱呼與語氣。</p>
+      </div>
+      <div class="setting-row">
+        <label for="tone-note">稱呼或語氣補充（選填） / Ghi chú xưng hô</label>
+        <input type="text" id="tone-note" maxlength="200" placeholder="例：他叫阿明，她叫 Lan；語氣輕鬆一點">
+      </div>
+      <div class="engine-test-row">
+        <button class="small-button primary-button" type="button" id="test-engine">測試翻譯 / Thử dịch</button>
+        <span class="engine-status" id="engine-status" role="status" aria-live="polite"></span>
+      </div>
+
+      <h3 class="settings-group-title">畫面與語音 <small lang="vi">Màn hình &amp; giọng nói</small></h3>
+      <div class="setting-row">
+        <label for="layout">畫面模式 / Bố cục</label>
+        <select id="layout">
+          <option value="face">面對面（越南文側倒轉） / Đối diện</option>
+          <option value="side">並肩（共用耳機，兩側同向） / Ngồi cạnh nhau</option>
+        </select>
+        <p class="field-note">兩人共用一副耳機、坐在一起時選「並肩」，兩側文字都朝同一方向。</p>
+      </div>
       <div class="setting-row">
         <label for="font-size">對話字體 / Cỡ chữ</label>
         <div class="range-row"><input type="range" id="font-size" min="22" max="36" step="1" value="24"><output id="font-size-value" for="font-size">24px</output></div>
@@ -138,7 +181,7 @@
       <div class="setting-row">
         <label for="email">MyMemory 電子郵件（選填） / Email (tùy chọn)</label>
         <input type="email" id="email" inputmode="email" autocomplete="email" placeholder="name@example.com">
-        <p class="field-note">用於提高免費翻譯額度，僅儲存在這台裝置。</p>
+        <p class="field-note">只在未填 Claude 金鑰時使用，用於提高 MyMemory 免費額度，僅儲存在這台裝置。</p>
       </div>
       <div class="voice-warning" id="voice-warning" role="status" aria-live="polite"></div>
     </div>
